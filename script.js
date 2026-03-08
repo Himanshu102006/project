@@ -5,9 +5,6 @@ let currentOTP = null;
 let otpVerified = false;
 let lockActive = false;
 
-// User email for OTP
-let userEmail = "himanshudhanda0001@gmail.com"; // replace with actual email
-
 async function connectSerial() {
   try {
     port = await navigator.serial.requestPort();
@@ -51,6 +48,7 @@ function updateSystem(msg) {
   let status = document.getElementById("status");
   let alertBox = document.getElementById("alertBox");
 
+  // ---------- MULTIPLE FAIL ALERT ----------
   if (msg.includes("MULTIPLE_FAIL")) {
     lockActive = true;
     otpVerified = false;
@@ -59,23 +57,22 @@ function updateSystem(msg) {
     alertBox.innerText = "🚨 MULTIPLE FAILED ATTEMPTS";
     alertBox.className = "alertBox alert-hack";
 
-    // Send OTP to email
-    sendOTPEmail(currentOTP);
-
-    // Show popup for user to enter OTP
-    showOTPPopup();
+    // Show OTP popup
+    showOTPPopup(currentOTP);
     return;
   }
 
-  // Normal events
+  // ---------- NORMAL EVENTS ----------
   if (msg.includes("UNLOCK")) {
     status.innerText = "🔓 UNLOCKED";
     status.style.color = "lime";
+
     alertBox.innerText = "🟢 Door Opened Successfully";
     alertBox.className = "alertBox alert-success";
   } else if (msg.includes("LOCK")) {
     status.innerText = "🔒 LOCKED";
     status.style.color = "red";
+
     alertBox.innerText = "Door Locked";
     alertBox.className = "alertBox";
   } else if (msg.includes("ACCESS_DENIED")) {
@@ -84,23 +81,27 @@ function updateSystem(msg) {
   } else if (msg.includes("WRONG_PASSWORD")) {
     alertBox.innerText = "⚠ Wrong Password Attempt";
     alertBox.className = "alertBox alert-warning";
-  } else if (msg.includes("HACK_ATTEMPT")) {
-    document.getElementById("hackPopup").style.display = "flex";
   }
 }
 
-// Generate 6-digit OTP
+// ---------- OTP GENERATION ----------
 function generateOTP() {
-  return Math.floor(100000 + Math.random() * 900000);
+  return Math.floor(100000 + Math.random() * 900000); // 6-digit OTP
 }
 
-// Show OTP popup
-function showOTPPopup() {
+// ---------- SHOW OTP POPUP ----------
+function showOTPPopup(otp) {
   const popup = document.getElementById("otpPopup");
   popup.style.display = "flex";
+
+  document.getElementById("otpText").innerText =
+    "Enter OTP sent: " + otp + " (simulated)";
+
+  // Optional: simulate sending OTP to user via email/SMS
+  console.log("Generated OTP:", otp);
 }
 
-// Verify OTP entered by user
+// ---------- VERIFY OTP ----------
 function verifyOTP() {
   const input = document.getElementById("otpInput").value;
   const popup = document.getElementById("otpPopup");
@@ -115,7 +116,7 @@ function verifyOTP() {
     currentOTP = null;
 
     if (writer) {
-      writer.write("O"); // notify Arduino
+      writer.write("O"); // Send OTP verification to Arduino
     }
 
     popup.style.display = "none";
@@ -125,23 +126,16 @@ function verifyOTP() {
   }
 }
 
-// Close popups
-function closeOTP() { document.getElementById("otpPopup").style.display = "none"; }
-function closeHack() { document.getElementById("hackPopup").style.display = "none"; }
+// ---------- CLOSE OTP POPUP ----------
+function closeOTP() {
+  document.getElementById("otpPopup").style.display = "none";
+}
 
-// Door control
-function unlock() { if (!lockActive && writer) writer.write("U"); }
-function lock() { if (writer) writer.write("L"); }
+// ---------- DOOR CONTROL ----------
+function unlock() {
+  if (!lockActive && writer) writer.write("U");
+}
 
-// ---------- EMAILJS FUNCTION ----------
-function sendOTPEmail(otp) {
-  emailjs.send("RUh_ykRc57jPMhYNK", "template_i6szekk", {
-    to_email: userEmail,
-    otp_code: otp
-  })
-  .then(function(response){
-    console.log("OTP sent via email!", response.status, response.text);
-  }, function(error){
-    console.log("Failed to send OTP", error);
-  });
+function lock() {
+  if (writer) writer.write("L");
 }
