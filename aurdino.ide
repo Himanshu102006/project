@@ -1,0 +1,199 @@
+#include <SPI.h>
+#include <MFRC522.h>
+#include <Keypad.h>
+#include <Servo.h>
+#include <Wire.h>
+#include <LiquidCrystal_I2C.h>
+
+#define SS_PIN 10
+#define RST_PIN 9
+
+MFRC522 rfid(SS_PIN, RST_PIN);
+Servo myservo;
+LiquidCrystal_I2C lcd(0x27,16,2);
+
+String password = ".><";
+String input = "";
+
+// Change this UID to your card UID
+byte authorizedUID[4] = {0xC0,0xD7,0x3E,0x5F};
+
+int wrongAttempts = 0;
+bool lockedDueToFail = false;  // Track lock state after multiple fails
+unsigned long lockStartTime = 0;
+
+const byte ROWS = 3;
+const byte COLS = 3;
+
+char keys[ROWS][COLS] = {
+  {'.','>','<'},
+  {'4','5','$'},
+  {'7','=','9'}
+};
+
+byte rowPins[ROWS] = {2,3,4};
+byte colPins[COLS] = {5,7,8};
+
+Keypad keypad = Keypad(makeKeymap(keys), rowPins, colPins, ROWS, COLS);
+
+void setup()
+{
+  Serial.begin(9600);
+  SPI.begin();
+  rfid.PCD_Init();
+  myservo.attach(6);
+  myservo.write(0);
+
+  lcd.init();
+  lcd.backlight();
+  lcd.setCursor(0,0);
+  lcd.print("Smart Lock");
+  delay(2000);
+  lcd.clear();
+  lcd.print("Scan Card");
+}
+
+void loop()
+{
+  // ---------- WEBSITE CONTROL ----------
+  if (Serial.available())
+  {
+    char command = Serial.read();
+
+    if(command == 'U') unlockDoor();
+    if(command == 'L') lockDoor();
+
+    // OTP verification from website
+    if(command == 'O') // 'O' for correct OTP
+    {
+      lockedDueToFail = false;
+      wrongAttempts = 0;
+      lcd.clear();
+      lcd.print("OTP Verified");
+      delay(2000);
+      lcd.clear();
+      lcd.print("Scan Card");
+    }
+  }
+
+  // ---------- LOCK TIMER ----------
+  if(lockedDueToFail)
+  {
+    unsigned long elapsed = millis() - lockStartTime;
+    if(elapsed >= 120000) // 2 minutes = 120000 ms
+    {
+      lockedDueToFail = false; // Lock time over, allow password again
+      wrongAttempts = 0;
+      lcd.clear();
+      lcd.print("Scan Card");
+    }
+    else return; // While locked, ignore keypad/RFID
+  }
+
+  // ---------- KEYPAD PASSWORD ----------
+  char key = keypad.getKey();
+
+  if(key)
+  {
+    input += key;
+    lcd.clear();
+    lcd.print("Enter Pass:");
+    lcd.setCursor(0,1);
+    lcd.print(input);
+
+    if(input.length() == 3)
+    {
+      if(input == password)
+      {
+        wrongAttempts = 0;
+        unlockDoor();
+      }
+      else
+      {
+        wrongAttempts++;
+        lcd.clear();
+        lcd.print("Wrong Password");
+        Serial.println("WRONG_PASSWORD");
+        delay(2000);
+
+        if(wrongAttempts >= 5)
+        {
+          triggerMultipleFail();
+        }
+      }
+      input = "";
+      if(!lockedDueToFail)
+      {
+        lcd.clear();
+        lcd.print("Scan Card");
+      }
+    }
+  }
+
+  // ---------- RFID SCANNING ----------
+  if (!rfid.PICC_IsNewCardPresent()) return;
+  if (!rfid.PICC_ReadCardSerial()) return;
+
+  if (rfid.uid.uidByte[0] == authorizedUID[0] &&
+      rfid.uid.uidByte[1] == authorizedUID[1] &&
+      rfid.uid.uidByte[2] == authorizedUID[2] &&
+      rfid.uid.uidByte[3] == authorizedUID[3])
+  {
+    wrongAttempts = 0;
+    unlockDoor();
+  }
+  else
+  {
+    wrongAttempts++;
+    lcd.clear();
+    lcd.print("Access Denied");
+    Serial.println("ACCESS_DENIED");
+    delay(2000);
+
+    if(wrongAttempts >= 5)
+    {
+      triggerMultipleFail();
+    }
+
+    if(!lockedDueToFail)
+    {
+      lcd.clear();
+      lcd.print("Scan Card");
+    }
+  }
+}
+
+// ---------- UNLOCK FUNCTION ----------
+void unlockDoor()
+{
+  lcd.clear();
+  lcd.print("Access Granted");
+  Serial.println("UNLOCK");
+  myservo.write(90);
+  delay(3000);
+  lockDoor();
+}
+
+// ---------- LOCK FUNCTION ----------
+void lockDoor()
+{
+  myservo.write(0);
+  Serial.println("LOCK");
+  lcd.clear();
+  lcd.print("Door Locked");
+  delay(2000);
+  lcd.clear();
+  lcd.print("Scan Card");
+}
+
+// ---------- MULTIPLE FAILURE ----------
+void triggerMultipleFail()
+{
+  lcd.clear();
+  lcd.print("MULTIPLE FAIL!");
+  Serial.println("MULTIPLE_FAIL");
+
+  lockedDueToFail = true;
+  lockStartTime = millis();
+  wrongAttempts = 0; // reset counter until OTP verified
+}
